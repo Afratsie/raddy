@@ -27,10 +27,11 @@ interpret it line by line:
   and execution continues with the next directive; one without a matcher always
   matches. The first matching terminal ends site execution.
 - **Modifier directives** (`header_up`, `header_down`, `encode`) are
-  **declarative transforms**; they do not take part in the "who serves"
-  decision. Wherever they appear in a block (before or after a terminal), they
-  apply to whichever terminal serves that block; modifiers inside a `handle`
-  block apply only to that block's terminal.
+  **declarative transforms**; `rate_limit` is a **declarative guard** (see
+  Section 5.2). None of them takes part in the "who serves" decision. Wherever they
+  appear in a block (before or after a terminal), they apply to whichever
+  terminal serves that block; modifiers inside a `handle` block apply only to
+  that block's terminal.
 - **`handle /path { ... }`**: a mutually-exclusive matching block. If the path
   matches, the block's directives run and **matching stops**; if not, execution
   continues. `handle` is for path grouping and "match one and stop" scenarios.
@@ -39,7 +40,7 @@ interpret it line by line:
   confusion.
 
 > Corollary: a modifier may appear after its terminal (e.g. `header_up` after
-> `reverse_proxy`) and still take effect on the request headers (see the §7
+> `reverse_proxy`) and still take effect on the request headers (see the Section 7
 > example). This is declarative semantics, not positional line-by-line
 > interpretation.
 
@@ -85,12 +86,30 @@ trusted, so the default must be pinned down:
   `X-Forwarded-For` chain from the rightmost untrusted address.
 - Both the global block and site blocks may set it; the site block wins.
 
+**Syntax** (global or site block):
+
+```caddyfile
+{
+    trusted_proxies 10.0.0.0/8 172.16.0.0/12 127.0.0.1
+}
+```
+
+- `trusted_proxies <cidr>...`; each `<cidr>` is `<address>/<prefix>` or a bare
+  address (a single host). IPv4 and IPv6 are both accepted. A later occurrence
+  overrides an earlier one in the same scope.
+- A site-block `trusted_proxies` overrides the global list **for that site
+  only**; other sites keep the global list.
+- **Semantics**: the real client IP is the TCP peer unless the peer is a
+  trusted proxy; then it is the rightmost entry of the `X-Forwarded-For` chain
+  that is **not** a trusted proxy (malformed entries are skipped). When the
+  whole chain is trusted or absent, the trusted peer itself is used.
+
 ## 5. Directives and parameter semantics
 
 | Directive | Syntax | Status |
 |---|---|---|
-| `reverse_proxy` | `reverse_proxy <target>` or block form `to <upstream>...`; `to` supports **multi-target round-robin**; `lb_policy` / `health_check` are planned | Available |
-| `handle` | mutually-exclusive matching block (see §2) | Available |
+| `reverse_proxy` | `reverse_proxy <target>` or block form `to <upstream>...`; `to` supports **multi-target round-robin**; optional `lb_policy` / `health_check` inside the block (see Section 5.1) | Available |
+| `handle` | mutually-exclusive matching block (see Section 2) | Available |
 | `header_up` / `header_down` | request / response header rewrite | Available |
 | `root` | the path, written directly in a scoped block; **no** redundant Caddy `root *` wildcard | Available |
 | `file_server` | static file hosting | Available |
@@ -98,9 +117,8 @@ trusted, so the default must be pinned down:
 | `redir` | `redir <target> [code]`, default `308`; `code` is a 3xx number or the keywords `permanent`(=308) / `temporary`(=302); placeholders `{host}`, `{uri}` | Available |
 | `log_level` | global log level (`info` / `debug` / `warn` / `error`) | Available |
 | `acme_email` | ACME registration email (required by Let's Encrypt) | Available |
-| `rate_limit` | `rate_limit remote_ip 50r/s burst=100` (**single-instance** rate limit; `remote_ip` matcher in §8) | Planned |
-| `jwt` | `jwt { issuer <url> audience <name> }` | Planned |
-| `trusted_proxies` | trusted network list (see §4) | Planned |
+| `rate_limit` | `rate_limit remote_ip <rate> [burst=<n>]` (**single-instance** rate limit; see Section 5.2) | Available |
+| `trusted_proxies` | trusted network list (see Section 4) | Available |
 | `snippet` / `import` | reusable snippets `(name) { ... }` / multi-file includes | Future |
 
 **Single-instance vs cluster rate limiting**: rate limiting is per-instance
@@ -114,6 +132,68 @@ for it here.
 `/var/www/static/foo`. Directories serve their `index.html`; `..` traversal is
 rejected with 404; only GET/HEAD are allowed. `encode` applies to `file_server`
 responses too.
+
+### 5.1 `lb_policy` / `health_check` (sub-directives of the `reverse_proxy` block)
+
+- They only appear in the **block form** of `reverse_proxy`; omitted means the
+  default round-robin (the v0.1 behavior).
+- `lb_policy round_robin | random | ip_hash`: the selection algorithm.
+  `round_robin` (default) rotates; `random` picks at random; `ip_hash` is a
+  consistent hash on the client IP (per-IP session stickiness).
+- `health_check { ... }`: **active health check** (TCP connect probe). Every
+  sub-parameter is optional and falls back to its default:
+  - `interval <dur>`: probe period, default `5s`.
+  - `timeout <dur>`: per-probe timeout, default `2s`.
+  - `consecutive_failures <n>`: remove an upstream only after N consecutive
+    failures (flapping suppression), default `3`.
+  - `consecutive_successes <n>`: restore an upstream only after M consecutive
+    successes (flapping suppression), default `2`.
+  - `<dur>` is a number plus a unit (`ms` / `s` / `m` / `h`), or a bare number
+    meaning seconds.
+- Runtime semantics: an upstream marked unhealthy is never selected; it flows
+  back automatically once restored. **If every upstream is unhealthy, raddy
+  returns 502.** Health state is process-lifetime and survives SIGHUP reloads
+; it is rebuilt only when the upstream list, policy, or health-check
+  parameters change.
+
+```caddyfile
+reverse_proxy {
+    to 10.0.0.1:8000 10.0.0.2:8000
+    lb_policy round_robin
+    health_check {
+        interval 5s
+        timeout 2s
+        consecutive_failures 3
+        consecutive_successes 2
+    }
+}
+```
+
+### 5.2 `rate_limit` (declarative guard)
+
+- Syntax: `rate_limit <key> <rate> [burst=<n>]`.
+- `<key>`: `remote_ip` — the real client IP per the Section 4 trust model. This is the
+  only key in v0.1.2.
+- `<rate>`: `<count>r/<unit>`, where the unit is `s` (second), `m` (minute),
+  `h` (hour), or `d` (day) — e.g. `50r/s`, `1200r/m`. The count must be ≥ 1.
+- `burst=<n>`: the token-bucket capacity, `n ≥ 1`; **default = the rate
+  count**. Omitted or explicit.
+- Semantics: a **single-node, in-memory token bucket** per (site, terminal,
+  client IP). The bucket refills continuously at `<rate>` and holds at most
+  `burst` tokens; a request that finds no token is rejected with
+  **429 Too Many Requests**. State is process-lifetime and survives SIGHUP
+  reloads.
+- It is a **modifier** (guard): a site-level `rate_limit` guards whichever
+  terminal serves the block; inside a `handle` block it guards only that
+  block's terminal. Requests that match no terminal (404) are not rate limited.
+  When several `rate_limit` directives are in scope each keeps its own counter.
+
+```caddyfile
+api.example.com {
+    rate_limit remote_ip 100r/s burst=200
+    reverse_proxy 127.0.0.1:8080
+}
+```
 
 ## 6. Site selection, ports, catch-all, and multiple sites
 
@@ -147,6 +227,7 @@ responses too.
 {
     acme_email ops@example.com
     log_level info
+    trusted_proxies 127.0.0.1
 }
 
 # HTTP → HTTPS redirect
@@ -155,6 +236,8 @@ responses too.
 }
 
 api.example.com {
+    rate_limit remote_ip 50r/s burst=100
+
     handle /static/* {
         root /var/www/html
         file_server
@@ -169,13 +252,13 @@ api.example.com {
 > Note: `header_up` written after `reverse_proxy` still affects the request
 > headers — it is a modifier directive applying to the terminal that serves this
 > block (here `reverse_proxy`). `encode zstd gzip` sits inside the `handle`
-> block, so it applies only to that block's `file_server`.
+> block, so it applies only to that block's `file_server`. `rate_limit` is a
+> declarative guard (modifier): it applies to whichever terminal serves the
+> site.
 
-> Other planned directives (`rate_limit`, `jwt`, `lb_policy`, `health_check`, …)
-> do not appear in the example, so readers never copy an unparseable config.
+> Planned and future directives (`snippet` / `import`, …) do not appear in the
+> example, so readers never copy an unparseable config.
 
 ## 8. Todo
 
-- The `rate_limit` `remote_ip` matcher and the `jwt` sub-directive grammar must
-  be finalized here before implementation.
 - Any syntax detail not covered here: **document it before implementing**.

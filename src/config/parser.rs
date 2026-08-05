@@ -43,6 +43,66 @@ const NAMED_SITE_DEFAULT_PORT: u16 = 443;
 /// The default redirect status code (spec §5).
 const REDIR_DEFAULT_CODE: u16 = 308;
 
+/// Parse a duration like `5s`, `2m`, `500ms`, `1h`, or a bare number of
+/// seconds (spec §5.1). The value is the second token on the line.
+fn parse_duration(line: &[String]) -> Result<std::time::Duration, String> {
+    if line.len() != 2 {
+        return Err(format!("'{}' requires exactly one duration value", line[0]));
+    }
+    let s = &line[1];
+    let (num, factor_nanos) = if let Some(v) = s.strip_suffix("ms") {
+        (v, 1_000_000u64)
+    } else if let Some(v) = s.strip_suffix('s') {
+        (v, 1_000_000_000u64)
+    } else if let Some(v) = s.strip_suffix('m') {
+        (v, 60 * 1_000_000_000u64)
+    } else if let Some(v) = s.strip_suffix('h') {
+        (v, 3600 * 1_000_000_000u64)
+    } else {
+        (s.as_str(), 1_000_000_000u64)
+    };
+    let n: u64 = num.parse().map_err(|_| format!("invalid duration '{s}'"))?;
+    let nanos = n
+        .checked_mul(factor_nanos)
+        .ok_or_else(|| format!("duration '{s}' is too large"))?;
+    Ok(std::time::Duration::from_nanos(nanos))
+}
+
+/// Parse a positive integer health-check counter (the second token).
+fn parse_count(line: &[String], name: &str) -> Result<usize, String> {
+    if line.len() != 2 {
+        return Err(format!("'{name}' requires exactly one integer value"));
+    }
+    let v = &line[1];
+    v.parse::<usize>()
+        .map_err(|_| format!("invalid {name} value '{v}'"))
+}
+
+/// Parse a rate token like `50r/s`, `1200r/m`, `3r/h`, `1r/d` (spec §5.2) into
+/// a count and a time unit.
+fn parse_rate(token: &str) -> Result<(u64, RateUnit), String> {
+    let (count_str, unit) = if let Some(v) = token.strip_suffix("r/s") {
+        (v, RateUnit::Second)
+    } else if let Some(v) = token.strip_suffix("r/m") {
+        (v, RateUnit::Minute)
+    } else if let Some(v) = token.strip_suffix("r/h") {
+        (v, RateUnit::Hour)
+    } else if let Some(v) = token.strip_suffix("r/d") {
+        (v, RateUnit::Day)
+    } else {
+        return Err(format!(
+            "invalid rate '{token}' (expected <count>r/<s|m|h|d>)"
+        ));
+    };
+    let count: u64 = count_str
+        .parse()
+        .map_err(|_| format!("invalid rate '{token}'"))?;
+    if count < 1 {
+        return Err(format!("rate count must be >= 1: '{token}'"));
+    }
+    Ok((count, unit))
+}
+
 struct Parser<'a> {
     file: &'a str,
     tokens: Vec<Token>,
@@ -296,6 +356,8 @@ impl<'a> Parser<'a> {
             "root" => self.parse_root(words, block_open),
             "encode" => self.parse_encode(words, block_open),
             "redir" => self.parse_redir(words, block_open),
+            "rate_limit" => self.parse_rate_limit(words, block_open),
+            "trusted_proxies" => self.parse_trusted_proxies(words, block_open),
             other => Err(self.err(format!("unknown directive '{other}'"))),
         }
     }
@@ -315,8 +377,10 @@ impl<'a> Parser<'a> {
         }
 
         let mut targets: Vec<String> = Vec::new();
+        let mut lb_policy = None;
+        let mut health_check = None;
         if block_open {
-            // Block form: `{ to <upstream>... }`.
+            // Block form: `{ to <upstream>... [lb_policy <p>] [health_check { ... }] }`.
             loop {
                 match self.peek() {
                     Some(Token {
@@ -333,13 +397,35 @@ impl<'a> Parser<'a> {
                 if line.is_empty() {
                     continue;
                 }
-                if nested {
-                    return Err(self.err("unexpected '{' in reverse_proxy block"));
+                let name = line[0].clone();
+                match name.as_str() {
+                    "to" => {
+                        if nested {
+                            return Err(self.err("unexpected '{' after 'to'"));
+                        }
+                        targets.extend(line.into_iter().skip(1));
+                    }
+                    "lb_policy" => {
+                        if nested {
+                            return Err(self.err("unexpected '{' after lb_policy"));
+                        }
+                        if lb_policy.is_some() {
+                            return Err(self.err("duplicate lb_policy"));
+                        }
+                        lb_policy = Some(self.parse_lb_policy(&line)?);
+                    }
+                    "health_check" => {
+                        if health_check.is_some() {
+                            return Err(self.err("duplicate health_check"));
+                        }
+                        health_check = Some(self.parse_health_check(nested)?);
+                    }
+                    other => {
+                        return Err(self.err(format!(
+                            "unexpected directive '{other}' in reverse_proxy block"
+                        )))
+                    }
                 }
-                if line[0] != "to" {
-                    return Err(self.err("expected 'to' in reverse_proxy block"));
-                }
-                targets.extend(line.into_iter().skip(1));
             }
         } else {
             if rest.len() != 1 {
@@ -355,7 +441,103 @@ impl<'a> Parser<'a> {
             .into_iter()
             .map(|t| self.parse_upstream(&t))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Directive::ReverseProxy { matcher, to })
+        Ok(Directive::ReverseProxy {
+            matcher,
+            to,
+            lb_policy: lb_policy.unwrap_or(LbPolicy::RoundRobin),
+            health_check,
+        })
+    }
+
+    /// Parse `lb_policy <round_robin | random | ip_hash>`.
+    fn parse_lb_policy(&self, line: &[String]) -> Result<LbPolicy, ConfigError> {
+        if line.len() != 2 {
+            return Err(self.err("lb_policy requires exactly one argument"));
+        }
+        match line[1].as_str() {
+            "round_robin" => Ok(LbPolicy::RoundRobin),
+            "random" => Ok(LbPolicy::Random),
+            "ip_hash" => Ok(LbPolicy::IpHash),
+            other => Err(self.err(format!(
+                "unknown lb_policy '{other}' (expected round_robin, random, or ip_hash)"
+            ))),
+        }
+    }
+
+    /// Parse a `health_check { ... }` block (or bare `health_check` for
+    /// defaults). All sub-parameters are optional.
+    fn parse_health_check(&mut self, block_open: bool) -> Result<HealthCheckSpec, ConfigError> {
+        if !block_open {
+            return Ok(HealthCheckSpec::default());
+        }
+        let mut interval = None;
+        let mut timeout = None;
+        let mut failures = None;
+        let mut successes = None;
+        loop {
+            match self.peek() {
+                Some(Token {
+                    kind: TokenKind::RBrace,
+                    ..
+                }) => {
+                    self.pos += 1;
+                    break;
+                }
+                None => return Err(self.err("unexpected end of file in health_check block")),
+                _ => {}
+            }
+            let (line, nested) = self.parse_statement()?;
+            if line.is_empty() {
+                continue;
+            }
+            if nested {
+                return Err(self.err("unexpected '{' in health_check block"));
+            }
+            let name = line[0].clone();
+            match name.as_str() {
+                "interval" => {
+                    if interval.is_some() {
+                        return Err(self.err("duplicate interval"));
+                    }
+                    interval = Some(parse_duration(&line).map_err(|m| self.err(m))?);
+                }
+                "timeout" => {
+                    if timeout.is_some() {
+                        return Err(self.err("duplicate timeout"));
+                    }
+                    timeout = Some(parse_duration(&line).map_err(|m| self.err(m))?);
+                }
+                "consecutive_failures" => {
+                    if failures.is_some() {
+                        return Err(self.err("duplicate consecutive_failures"));
+                    }
+                    failures =
+                        Some(parse_count(&line, "consecutive_failures").map_err(|m| self.err(m))?);
+                }
+                "consecutive_successes" => {
+                    if successes.is_some() {
+                        return Err(self.err("duplicate consecutive_successes"));
+                    }
+                    successes =
+                        Some(parse_count(&line, "consecutive_successes").map_err(|m| self.err(m))?);
+                }
+                other => return Err(self.err(format!("unknown health_check option '{other}'"))),
+            }
+        }
+        let defaults = HealthCheckSpec::default();
+        let spec = HealthCheckSpec {
+            interval: interval.unwrap_or(defaults.interval),
+            timeout: timeout.unwrap_or(defaults.timeout),
+            consecutive_failures: failures.unwrap_or(defaults.consecutive_failures),
+            consecutive_successes: successes.unwrap_or(defaults.consecutive_successes),
+        };
+        // A zero interval would make the health runner probe every tick, and a
+        // zero timeout is meaningless; reject both rather than silently hammer
+        // upstreams.
+        if spec.interval.is_zero() || spec.timeout.is_zero() {
+            return Err(self.err("health_check interval and timeout must be greater than zero"));
+        }
+        Ok(spec)
     }
 
     fn parse_upstream(&self, s: &str) -> Result<Upstream, ConfigError> {
@@ -503,6 +685,75 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse `trusted_proxies <cidr>...` (spec §4).
+    fn parse_trusted_proxies(
+        &self,
+        words: &[String],
+        block_open: bool,
+    ) -> Result<Directive, ConfigError> {
+        if block_open {
+            return Err(self.err("unexpected '{' after trusted_proxies"));
+        }
+        if words.len() < 2 {
+            return Err(self.err("trusted_proxies requires at least one CIDR"));
+        }
+        let networks = words[1..]
+            .iter()
+            .map(|w| Cidr::parse(w).map_err(|message| self.err(message)))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Directive::TrustedProxies { networks })
+    }
+
+    /// Parse `rate_limit <key> <rate> [burst=<n>]` (spec §5.2).
+    fn parse_rate_limit(
+        &self,
+        words: &[String],
+        block_open: bool,
+    ) -> Result<Directive, ConfigError> {
+        if block_open {
+            return Err(self.err("unexpected '{' after rate_limit"));
+        }
+        if !(3..=4).contains(&words.len()) {
+            return Err(self.err("rate_limit expects: rate_limit <remote_ip> <rate> [burst=<n>]"));
+        }
+        // Only `remote_ip` is supported in v0.1.2 (spec §5.2).
+        let key = match words[1].as_str() {
+            "remote_ip" => RateLimitKey::RemoteIp,
+            other => {
+                return Err(self.err(format!(
+                    "unknown rate_limit key '{other}' (only 'remote_ip' is supported)"
+                )))
+            }
+        };
+        let (count, unit) = parse_rate(&words[2]).map_err(|message| self.err(message))?;
+        let mut burst = count;
+        if let Some(arg) = words.get(3) {
+            match arg.strip_prefix("burst=") {
+                Some(value) => {
+                    burst = value
+                        .parse::<u64>()
+                        .map_err(|_| self.err(format!("invalid burst '{value}'")))?;
+                    if burst < 1 {
+                        return Err(self.err("burst must be >= 1"));
+                    }
+                }
+                None => {
+                    return Err(self.err(format!(
+                        "unexpected argument '{arg}' (expected 'burst=<n>')"
+                    )))
+                }
+            }
+        }
+        Ok(Directive::RateLimit {
+            spec: RateSpec {
+                key,
+                count,
+                unit,
+                burst,
+            },
+        })
+    }
+
     fn apply_global(&self, global: &mut GlobalConfig, words: &[String]) -> Result<(), ConfigError> {
         let name = words.first().expect("non-empty");
         match name.as_str() {
@@ -529,6 +780,16 @@ impl<'a> Parser<'a> {
                     }
                 };
                 global.log_level = Some(level);
+            }
+            "trusted_proxies" => {
+                if words.len() < 2 {
+                    return Err(self.err("trusted_proxies requires at least one CIDR"));
+                }
+                let networks = words[1..]
+                    .iter()
+                    .map(|w| Cidr::parse(w).map_err(|message| self.err(message)))
+                    .collect::<Result<Vec<_>, _>>()?;
+                global.trusted_proxies = networks;
             }
             other => return Err(self.err(format!("unknown global directive '{other}'"))),
         }
@@ -634,7 +895,7 @@ mod tests {
         let input = ":8080 {\n    reverse_proxy /api/* {\n        to 127.0.0.1:8081 127.0.0.1:8082\n    }\n}\n";
         let rf = parse("test", input).unwrap();
         match &rf.sites[0].directives[0] {
-            Directive::ReverseProxy { matcher, to } => {
+            Directive::ReverseProxy { matcher, to, .. } => {
                 assert!(matcher.is_some());
                 assert_eq!(to.len(), 2);
                 assert_eq!(to[0].host, "127.0.0.1");
@@ -643,6 +904,68 @@ mod tests {
             }
             other => panic!("expected reverse_proxy, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_lb_policy_and_health_check() {
+        let input = ":8080 {\n    reverse_proxy {\n        to 127.0.0.1:8081 127.0.0.1:8082\n        lb_policy random\n        health_check {\n            interval 2s\n            timeout 500ms\n            consecutive_failures 5\n            consecutive_successes 1\n        }\n    }\n}\n";
+        let rf = parse("test", input).unwrap();
+        match &rf.sites[0].directives[0] {
+            Directive::ReverseProxy {
+                matcher,
+                to,
+                lb_policy,
+                health_check,
+            } => {
+                assert!(matcher.is_none());
+                assert_eq!(to.len(), 2);
+                assert_eq!(*lb_policy, LbPolicy::Random);
+                let hc = health_check.as_ref().expect("health check");
+                assert_eq!(hc.interval, std::time::Duration::from_secs(2));
+                assert_eq!(hc.timeout, std::time::Duration::from_millis(500));
+                assert_eq!(hc.consecutive_failures, 5);
+                assert_eq!(hc.consecutive_successes, 1);
+            }
+            other => panic!("expected reverse_proxy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_health_check_uses_defaults() {
+        let input = ":8080 {\n    reverse_proxy {\n        to 127.0.0.1:8081\n        health_check\n    }\n}\n";
+        let rf = parse("test", input).unwrap();
+        match &rf.sites[0].directives[0] {
+            Directive::ReverseProxy { health_check, .. } => {
+                assert_eq!(
+                    *health_check.as_ref().expect("health check"),
+                    HealthCheckSpec::default()
+                );
+            }
+            other => panic!("expected reverse_proxy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_lb_policy() {
+        let input = ":8080 {\n    reverse_proxy {\n        to 127.0.0.1:8081\n        lb_policy fancy\n    }\n}\n";
+        let err = parse("test", input).unwrap_err();
+        assert!(err.to_string().contains("unknown lb_policy"));
+    }
+
+    #[test]
+    fn rejects_unknown_health_check_option() {
+        let input = ":8080 {\n    reverse_proxy {\n        to 127.0.0.1:8081\n        health_check {\n            bogus 1s\n        }\n    }\n}\n";
+        let err = parse("test", input).unwrap_err();
+        assert!(err.to_string().contains("unknown health_check option"));
+    }
+
+    #[test]
+    fn rejects_zero_health_check_interval() {
+        let input = ":8080 {\n    reverse_proxy {\n        to 127.0.0.1:8081\n        health_check {\n            interval 0s\n        }\n    }\n}\n";
+        let err = parse("test", input).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("interval and timeout must be greater than zero"));
     }
 
     #[test]
@@ -679,6 +1002,113 @@ mod tests {
         assert_eq!(strip_matcher_wildcard("/api/*"), "/api");
         assert_eq!(strip_matcher_wildcard("/"), "/");
         assert_eq!(strip_matcher_wildcard("/*"), "/");
+    }
+
+    #[test]
+    fn parses_trusted_proxies_in_global_block() {
+        let input = "{ trusted_proxies 10.0.0.0/8 172.16.0.0/12 127.0.0.1 }\n:80 { redir https://{host}{uri} permanent }\n";
+        let rf = parse("test", input).unwrap();
+        assert_eq!(rf.global.trusted_proxies.len(), 3);
+        assert!(rf.global.trusted_proxies[0].contains("10.1.2.3".parse().unwrap()));
+        assert!(!rf.global.trusted_proxies[0].contains("11.0.0.1".parse().unwrap()));
+        // A bare address is a single host.
+        assert!(rf.global.trusted_proxies[2].contains("127.0.0.1".parse().unwrap()));
+        assert!(!rf.global.trusted_proxies[2].contains("127.0.0.2".parse().unwrap()));
+    }
+
+    #[test]
+    fn parses_trusted_proxies_in_site_block() {
+        let input =
+            ":8080 {\n    trusted_proxies 10.0.0.0/8\n    reverse_proxy 127.0.0.1:9000\n}\n";
+        let rf = parse("test", input).unwrap();
+        match &rf.sites[0].directives[0] {
+            Directive::TrustedProxies { networks } => {
+                assert_eq!(networks.len(), 1);
+                assert!(networks[0].contains("10.9.8.7".parse().unwrap()));
+            }
+            other => panic!("expected trusted_proxies, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_rate_limit_with_burst() {
+        let input = ":8080 {\n    rate_limit remote_ip 1200r/m burst=2000\n    reverse_proxy 127.0.0.1:9000\n}\n";
+        let rf = parse("test", input).unwrap();
+        match &rf.sites[0].directives[0] {
+            Directive::RateLimit { spec } => {
+                assert_eq!(spec.key, RateLimitKey::RemoteIp);
+                assert_eq!(spec.count, 1200);
+                assert_eq!(spec.unit, RateUnit::Minute);
+                assert_eq!(spec.burst, 2000);
+            }
+            other => panic!("expected rate_limit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rate_limit_burst_defaults_to_rate() {
+        let input = ":8080 {\n    rate_limit remote_ip 3r/s\n}\n";
+        let rf = parse("test", input).unwrap();
+        match &rf.sites[0].directives[0] {
+            Directive::RateLimit { spec } => assert_eq!(spec.burst, spec.count),
+            other => panic!("expected rate_limit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_rate() {
+        let err = parse("test", ":8080 {\n    rate_limit remote_ip 50/s\n}\n").unwrap_err();
+        assert!(err.to_string().contains("invalid rate"));
+    }
+
+    #[test]
+    fn rejects_zero_burst() {
+        let err = parse(
+            "test",
+            ":8080 {\n    rate_limit remote_ip 50r/s burst=0\n}\n",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("burst must be >= 1"));
+    }
+
+    #[test]
+    fn rejects_unknown_rate_limit_key() {
+        let err = parse("test", ":8080 {\n    rate_limit path /api 50r/s\n}\n").unwrap_err();
+        assert!(err.to_string().contains("unknown rate_limit key"));
+    }
+
+    #[test]
+    fn rejects_rate_limit_in_global_block() {
+        let err = parse(
+            "test",
+            "{ rate_limit remote_ip 1r/s }\n:80 { redir / permanent }\n",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown global directive"));
+    }
+
+    #[test]
+    fn rejects_bare_trusted_proxies() {
+        let err = parse("test", "{ trusted_proxies }\n:80 { redir / permanent }\n").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("trusted_proxies requires at least one CIDR"));
+    }
+
+    #[test]
+    fn rejects_invalid_cidr() {
+        let err = parse("test", ":8080 {\n    trusted_proxies 10.0.0.0/33\n}\n").unwrap_err();
+        assert!(err.to_string().contains("CIDR prefix"));
+    }
+
+    #[test]
+    fn rate_limit_errors_report_line_and_column() {
+        let err = parse("test", ":8080 {\n    rate_limit remote_ip bad\n}\n").unwrap_err();
+        let text = err.to_string();
+        assert!(
+            text.contains("test:2:5"),
+            "expected file:line:col, got: {text}"
+        );
     }
 
     // -------------------------------------------------------------------
@@ -734,6 +1164,8 @@ mod tests {
             "{ acme_email ops@example.com\nlog_level info }\n:80 {\n    redir https://{host}{uri} permanent\n}\napi.example.com:8080 {\n    handle /static/* {\n        root /var/www\n        file_server\n        encode zstd gzip\n    }\n    reverse_proxy 127.0.0.1:9000\n    header_up X-Real-IP {remote_host}\n}\n",
             ":8080 {\n    reverse_proxy {\n        to 127.0.0.1:9001 127.0.0.1:9002\n    }\n}\n",
             "# only a comment\n:8080 {\n    header_up X-Test {uri}\n    redir /old permanent\n}\n",
+            // v0.1.2: trusted_proxies + rate_limit grammar.
+            "{ trusted_proxies 10.0.0.0/8 172.16.0.0/12 127.0.0.1 }\n:8080 {\n    rate_limit remote_ip 50r/s burst=100\n    reverse_proxy 127.0.0.1:9000\n}\napi.test:8081 {\n    trusted_proxies 192.168.0.0/16\n    rate_limit remote_ip 3r/d\n    redir /old permanent\n}\n",
         ];
         let mut rng = XorShift(0x0123_4567_89ab_cdef);
         for seed in seeds {
