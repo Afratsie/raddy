@@ -1,0 +1,57 @@
+# Installation
+
+Releases ship a **checksum-verified installer** and a **manual path** — neither relies on `curl | sudo bash`. The installer downloads, verifies the sha256, then installs.
+
+## Option 1: Installer script (recommended)
+
+The release assets include `install.sh` (download and review it first):
+
+```bash
+# Download and review the script, then run it
+curl -fsSL -O https://github.com/chulingera2025/raddy/releases/latest/download/install.sh
+# Optional: verify the script's own checksum against the release SHA256SUMS
+shasum -a 256 -c SHA256SUMS
+./install.sh                  # installs to /usr/local/bin/raddy
+./install.sh v0.1.0 ~/.local  # specific version and prefix
+```
+
+The script picks `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu` from `uname -m`, downloads the matching tarball and `SHA256SUMS`, and only runs `install` after `shasum -a 256 -c` passes. A failed check aborts without installing.
+
+## Option 2: Manual install
+
+1. From [Releases](https://github.com/chulingera2025/raddy/releases), download `raddy-<arch>.tar.gz` for your architecture and `SHA256SUMS`.
+2. Verify:
+   ```bash
+   shasum -a 256 -c SHA256SUMS
+   ```
+   The output must include `<filename>: OK`.
+3. Extract and install:
+   ```bash
+   tar -xzf raddy-<arch>.tar.gz -C /usr/local
+   raddy --version
+   ```
+
+## Option 3: Build from source
+
+```bash
+cargo build --release
+./target/release/raddy --version
+```
+
+System dependencies: stable Rust, OpenSSL dev libraries (`libssl-dev` / `openssl`), and `cmake` (required by pingora's `libz-ng-sys`).
+
+## Docker
+
+```bash
+docker build -t raddy .
+docker run --rm -p 8080:8080 raddy run -c /etc/raddy/Raddyfile
+```
+
+> Note: integrity is guaranteed with **sha256 checksums** (verified by the installer). Code signing with a published release key (e.g. minisign/cosign) is a future enhancement.
+
+## Verify the install
+
+```bash
+raddy check -c <your Raddyfile>   # validate the config
+raddy run -c <your Raddyfile>     # run
+```

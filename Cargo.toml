@@ -1,0 +1,37 @@
+[package]
+name = "raddy"
+version = "0.1.0"
+edition = "2021"
+authors = ["chulingera2025"]
+description = "A minimal high-performance reverse proxy gateway built on Cloudflare Pingora"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["reverse-proxy", "gateway", "pingora", "http", "tls"]
+categories = ["network-programming", "web-programming"]
+
+[dependencies]
+arc-swap = "1"
+async-trait = "0.1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+flate2 = "1"
+http = "1"
+instant-acme = { version = "0.8.5", features = ["rcgen"] }
+mime_guess = "2"
+# Note: pingora has NO default features (`default = []`); `proxy`, `lb`, and a
+# TLS backend must be enabled explicitly. M4 adds the `openssl` backend for the
+# SNI dynamic-cert listeners and ACME.
+pingora = { version = "0.8", features = ["proxy", "lb", "openssl"] }
+prometheus = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signal-hook = "0.3"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zstd = "0.13"
+
+[dev-dependencies]
+libc = "0.2"
+rcgen = "0.14"

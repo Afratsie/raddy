@@ -1,0 +1,27 @@
+/target
+**/*.rs.bk
+
+.DS_Store
+*.swp
+*.swo
+
+*.log
+/data/
+
+# ACME certificates and account credentials
+/raddy_certs
+
+# Pebble test server artifacts (download + generated certs/config/logs)
+/tests/pebble/pebble*.tar.gz
+/tests/pebble/pebble-linux-amd64
+/tests/pebble/certs
+/tests/pebble/config
+/tests/pebble/pebble.log
+
+# cargo-fuzz generated artifacts
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+
+# Development docs stay local-only (not tracked)
+/devdoc/
