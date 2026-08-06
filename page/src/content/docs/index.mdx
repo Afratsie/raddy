@@ -1,0 +1,55 @@
+---
+title: Raddy
+description: A minimal high-performance reverse proxy gateway built on Cloudflare Pingora.
+template: splash
+hero:
+  tagline: A minimal, high-performance reverse proxy gateway in Rust
+  actions:
+    - text: Quick start
+      link: quickstart/
+      variant: primary
+    - text: Install raddy
+      link: install/
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Raddy is a reverse proxy gateway in Rust, built on
+[Cloudflare Pingora](https://github.com/cloudflare/pingora). You write a
+**Raddyfile** — a Caddyfile-style configuration — and raddy handles routing,
+automatic HTTPS, static files, compression, rate limiting, and access logs, with
+Pingora's performance and memory safety.
+
+<CardGrid>
+	<Card title="Predictable configuration" icon="cursor-click">
+		Directives run strictly in write order. What you write is what happens —
+		no hidden ordering table.
+	</Card>
+	<Card title="Automatic HTTPS" icon="lock">
+		Native ACME (HTTP-01) issuance with SNI certificates, out of the box.
+	</Card>
+	<Card title="Hot reload" icon="refresh">
+		SIGHUP swaps the routing snapshot atomically; connections stay up.
+	</Card>
+	<Card title="Edge protection" icon="shield">
+		Rate limiting built on a trusted-proxy model for the real client IP.
+	</Card>
+	<Card title="Observability" icon="chart">
+		Prometheus metrics and structured JSON access logs.
+	</Card>
+	<Card title="Zero-downtime upgrades" icon="rocket">
+		`raddy upgrade` hands listening sockets to a new binary without dropping
+		connections.
+	</Card>
+</CardGrid>
+
+## Where to go next
+
+<CardGrid>
+	<LinkCard title="Quick start" href="quickstart/" description="Write your first Raddyfile and serve traffic in five minutes." />
+	<LinkCard title="Configuration guide" href="config/" description="The mental model behind the Raddyfile: how a request flows through your config." />
+	<LinkCard title="Common configurations" href="guides/static-files/" description="Copy-pasteable setups: static files, HTTP→HTTPS redirect, API proxying." />
+	<LinkCard title="Directive reference" href="config/directives/" description="Every directive with syntax and examples." />
+	<LinkCard title="CLI reference" href="cli/" description="All `raddy` subcommands and options." />
+	<LinkCard title="Operations" href="operations/metrics/" description="Metrics, access logs, and the performance baseline." />
+</CardGrid>

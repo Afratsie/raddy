@@ -1,8 +1,0 @@
-[book]
-title = "Raddy"
-authors = ["chulingera2025"]
-language = "en"
-
-[output.html]
-git-repository-url = "https://github.com/chulingera2025/raddy"
-site-url = "https://chulingera2025.github.io/raddy/"

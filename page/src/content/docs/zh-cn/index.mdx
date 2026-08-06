@@ -1,0 +1,52 @@
+---
+title: Raddy
+description: 基于 Cloudflare Pingora 构建的极简高性能反向代理网关。
+template: splash
+hero:
+  tagline: 基于 Rust 的极简高性能反向代理网关
+  actions:
+    - text: 快速开始
+      link: quickstart/
+      variant: primary
+    - text: 安装 raddy
+      link: install/
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Raddy 是基于 [Cloudflare Pingora](https://github.com/cloudflare/pingora) 构建的
+反向代理网关(Rust)。你只需写一份 **Raddyfile** —— Caddyfile 风格的配置 ——
+raddy 便负责路由、自动 HTTPS、静态文件、压缩、限流与访问日志,并享有
+Pingora 的性能与内存安全。
+
+<CardGrid>
+	<Card title="可预测的配置" icon="cursor-click">
+		指令严格按书写顺序执行。所见即所执行——没有隐藏的排序表。
+	</Card>
+	<Card title="自动 HTTPS" icon="lock">
+		原生 ACME(HTTP-01)签发,SNI 动态证书,开箱即用。
+	</Card>
+	<Card title="热重载" icon="refresh">
+		SIGHUP 原子替换路由快照;连接保持不断。
+	</Card>
+	<Card title="边缘防护" icon="shield">
+		基于可信代理模型识别真实客户端 IP 的限流。
+	</Card>
+	<Card title="可观测性" icon="chart">
+		Prometheus 指标与结构化 JSON 访问日志。
+	</Card>
+	<Card title="零停机升级" icon="rocket">
+		`raddy upgrade` 将监听套接字移交给新二进制,连接零中断。
+	</Card>
+</CardGrid>
+
+## 下一步
+
+<CardGrid>
+	<LinkCard title="快速上手" href="quickstart/" description="五分钟内写出第一个 Raddyfile 并跑通流量。" />
+	<LinkCard title="配置指南" href="config/" description="Raddyfile 背后的心智模型:请求如何流经你的配置。" />
+	<LinkCard title="常见配置" href="guides/static-files/" description="可直接抄的配置:静态托管、HTTP→HTTPS 重定向、API 代理。" />
+	<LinkCard title="指令参考" href="config/directives/" description="每条指令的语法与示例。" />
+	<LinkCard title="CLI 参考" href="cli/" description="所有 `raddy` 子命令与选项。" />
+	<LinkCard title="运维" href="operations/metrics/" description="指标、访问日志与性能基线。" />
+</CardGrid>

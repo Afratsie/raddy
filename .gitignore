@@ -27,6 +27,5 @@ CLAUDE.md
 # Development docs stay local-only (not tracked)
 /devdoc/
 
-# mdBook build output (book/ holds the site source; /book/*/book/ is generated)
-/book/*/book/
-/out/
+# Docs site (Astro/Starlight) lives in page/; generated output is ignored by
+# page/.gitignore (dist/, node_modules/, .astro/)

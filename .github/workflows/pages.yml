@@ -1,7 +1,8 @@
 name: Pages
 
-# Builds the mdBook documentation site (English at /, Chinese under /zh-CN/)
-# and deploys it to GitHub Pages on every `main` push.
+# Builds the Astro (Starlight) documentation site in `page/` — English at the
+# site root, Chinese under /zh-CN/ — and deploys it to GitHub Pages on every
+# `main` push.
 
 on:
   push:
@@ -19,27 +20,33 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: page
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mdBook
-        uses: peaceiris/actions-mdbook@v2
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
-      - name: Build English book
-        run: mdbook build book/en
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: page/pnpm-lock.yaml
 
-      - name: Build Chinese book
-        run: mdbook build book/zh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Assemble site (English at root, Chinese under /zh-CN/)
-        run: |
-          mkdir -p out/zh-CN
-          cp -r book/en/book/. out/
-          cp -r book/zh/book/. out/zh-CN/
+      - name: Build site
+        run: pnpm build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: out
+          path: page/dist
 
   deploy:
     needs: build

@@ -1,0 +1,97 @@
+---
+title: 核心概念
+description: Raddyfile 背后的心智模型 —— 指令如何执行、请求如何流经你的配置。
+---
+
+Raddyfile 是 raddy 的核心:一份纯文本配置,采用 Caddyfile 风格的语法,用
+`raddy check` 校验、用 `raddy run` 服务。本页给你心智模型;[指令
+参考](directives/)有完整语法,[站点 · 端口 · HTTPS](sites/)介绍请求如何匹配到
+站点。
+
+## 配置一览
+
+一份 Raddyfile 由一个可选的**全局块**和若干**站点块**组成:
+
+```caddyfile
+{
+    acme_email ops@example.com
+}
+
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+
+static.example.com {
+    root /var/www/html
+    file_server
+}
+```
+
+- **全局块** —— 文件顶部的裸 `{ ... }` —— 承载站点级设置,例如你的 ACME
+  邮箱。
+- 每个**站点块**把一个主机(可选带端口)映射到行为。
+
+## 两类指令
+
+请求匹配到站点后,raddy **严格按书写顺序**执行该站点的每一行。每行要么是
+终端,要么是修饰符:
+
+- **终端指令**决定*由谁服务*请求:`reverse_proxy`、`file_server`、`redir`。
+  第一个匹配的终端**结束站点**——后续行不再执行。
+- **修饰指令**描述*如何服务*,与位置无关:`header_up`、`header_down`、
+  `encode`、`rate_limit`。它们作用于服务该块的终端,即使写在终端之后。
+
+> **Caddy 用户:** Caddy 会在后台重排指令顺序;raddy 不会。顺序由你控制,
+> 第一个匹配者胜出。
+
+### `handle` 把路径与终端分组
+
+`handle /path/* { ... }` 是作用域块:若路径匹配,块内行执行并**停止匹配**;
+否则跳过继续。可以理解为"这个路径,用这个终端"。
+
+## 一次请求的追踪
+
+把模型放到一个具体站点上:
+
+```caddyfile
+api.example.com {
+    handle /static/* {
+        root /var/www/html
+        file_server
+        encode zstd gzip
+    }
+
+    reverse_proxy 127.0.0.1:8080
+    rate_limit remote_ip 100r/s
+    header_up X-Real-IP {remote_host}
+}
+```
+
+**请求:`GET /static/app.js`**
+
+1. `handle /static/*` 匹配该路径,因此块内行按序执行。
+2. `root` 设置目录;`file_server` 服务 `/var/www/html/static/app.js` 并
+   **结束站点执行**。
+3. `encode zstd gzip` —— 块内的修饰指令 —— 在客户端接受时压缩响应。
+4. 站点级修饰指令(`rate_limit`、`header_up`)同样作用于这个终端,因为站点级
+   修饰指令作用于服务该块的任意终端。`rate_limit` 检查该客户端的令牌桶;
+   `header_up` 面向上游请求,对本地文件无效果。
+
+**请求:`GET /api/users`**
+
+1. `handle /static/*` **不**匹配,执行继续。
+2. `reverse_proxy` 没有匹配器,总是匹配,于是代理到 `127.0.0.1:8080`,结束
+   站点。
+3. `rate_limit remote_ip 100r/s` 同样守卫这个终端(它是站点级修饰指令)。桶空
+   时返回 `429 Too Many Requests`。
+4. `header_up X-Real-IP {remote_host}` 把客户端 IP 加入上游请求头。
+
+> 书写顺序只在**终端之间**有意义。修饰指令无论写在哪里都生效,按其作用域:
+> 站点级修饰指令作用于站点内每个终端;`handle` 块内的修饰指令只作用于该块
+> 的终端。
+
+## 完整语言
+
+- [指令参考](directives/) —— 每条指令、语法与示例
+- [站点 · 端口 · HTTPS](sites/) —— 匹配、catch-all、证书
+- [可信代理](trusted-proxies/) —— "真实"客户端 IP 从哪来

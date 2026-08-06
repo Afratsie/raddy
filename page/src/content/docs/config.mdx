@@ -1,0 +1,106 @@
+---
+title: Concepts
+description: The mental model behind the Raddyfile — how directives execute and how a request flows through your configuration.
+---
+
+The Raddyfile is the heart of raddy: a plain-text configuration in a
+Caddyfile-style syntax, validated with `raddy check` and served with
+`raddy run`. This page gives you the mental model. The [directive
+reference](directives/) has the complete syntax, and [Sites, ports &
+HTTPS](sites/) covers how a request is matched to a site.
+
+## A configuration at a glance
+
+A Raddyfile is an optional **global block** followed by one or more **site
+blocks**:
+
+```caddyfile
+{
+    acme_email ops@example.com
+}
+
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+
+static.example.com {
+    root /var/www/html
+    file_server
+}
+```
+
+- The **global block** — a bare `{ ... }` at the top of the file — carries
+  site-wide settings such as your ACME email.
+- Each **site block** maps a host (optionally with a port) to behavior.
+
+## Two kinds of directive
+
+Once a request is matched to a site, raddy executes the site's lines **strictly
+in write order**. Every line is one of two kinds:
+
+- **Terminal directives** decide *who serves* the request: `reverse_proxy`,
+  `file_server`, `redir`. The first terminal that matches **ends the site** —
+  later lines never run.
+- **Modifier directives** describe *how* to serve, regardless of position:
+  `header_up`, `header_down`, `encode`, `rate_limit`. They apply to whichever
+  terminal serves the block, even if written after it.
+
+> **Caddy users:** Caddy reorders directives behind the scenes; raddy does not.
+> You control the order, and the first match wins.
+
+### `handle` groups a path with a terminal
+
+`handle /path/* { ... }` is a scoped block: if the path matches, its lines run
+and matching stops; otherwise execution continues past it. Think of it as
+"for this path, use this terminal."
+
+## A request, traced
+
+Put the model together on a concrete site:
+
+```caddyfile
+api.example.com {
+    handle /static/* {
+        root /var/www/html
+        file_server
+        encode zstd gzip
+    }
+
+    reverse_proxy 127.0.0.1:8080
+    rate_limit remote_ip 100r/s
+    header_up X-Real-IP {remote_host}
+}
+```
+
+**Request: `GET /static/app.js`**
+
+1. `handle /static/*` matches the path, so its lines run in order.
+2. `root` sets the directory; `file_server` serves `/var/www/html/static/app.js`
+   and **ends site execution**.
+3. `encode zstd gzip` — a modifier inside the block — compresses the response
+   when the client accepts it.
+4. The site-level modifiers (`rate_limit`, `header_up`) also apply to this
+   terminal, because site-level modifiers apply to whichever terminal serves the
+   block. `rate_limit` checks the client's bucket; `header_up` targets the
+   upstream request, so it has no effect on a local file.
+
+**Request: `GET /api/users`**
+
+1. `handle /static/*` does **not** match, so execution continues.
+2. `reverse_proxy` has no matcher, so it always matches and serves the request —
+   proxied to `127.0.0.1:8080`, ending the site.
+3. `rate_limit remote_ip 100r/s` guards this terminal too (it is a site-level
+   modifier). If the bucket is empty you get `429 Too Many Requests`.
+4. `header_up X-Real-IP {remote_host}` adds the client's IP to the upstream
+   request headers.
+
+> Write order matters only between terminals. Modifiers apply wherever they are
+> written, within their scope: site-level modifiers apply to every terminal in
+> the site; modifiers inside a `handle` block apply only to that block's
+> terminal.
+
+## The full language
+
+- [Directive reference](directives/) — every directive, syntax, and example
+- [Sites, ports & HTTPS](sites/) — matching, catch-alls, certificates
+- [Trusted proxies](trusted-proxies/) — where the "real" client IP comes from
