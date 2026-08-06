@@ -97,6 +97,7 @@ pub fn run(config_path: &Path, opts: &RunOptions) -> Result<(), Box<dyn Error>> 
         acme_root_pem,
         opts.cert_dir.clone(),
         email,
+        snapshot.global.dns_challenge.clone(),
     ));
     acme.load_persisted_certs();
     let issuance_tx = acme.spawn_issuance_worker();

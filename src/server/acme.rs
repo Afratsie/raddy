@@ -25,6 +25,8 @@
 //! the previous certificate in service and is retried on the next scan
 //! (ARCHITECTURE §5).
 
+use crate::config::ast::DnsChallenge;
+use crate::server::cloudflare::{Cloudflare, RecordHandle};
 use crate::tls::CertStore;
 use instant_acme::{
     Account, AuthorizationStatus, ChallengeType, Identifier, NewAccount, NewOrder, OrderStatus,
@@ -94,6 +96,9 @@ pub struct AcmeManager {
     cert_dir: PathBuf,
     /// Contact email from `acme_email` (required by Let's Encrypt).
     email: Option<String>,
+    /// DNS-01 challenge credentials (spec §5.3); when set, issuance proves
+    /// domain control via DNS-01 (the provider's API) instead of HTTP-01.
+    dns_challenge: Option<DnsChallenge>,
     /// Serializes issuance so account creation/order processing is never
     /// concurrent (a v0.1 simplification; `instant-acme` supports concurrent
     /// orders per account, but account creation races are messy on first run).
@@ -110,6 +115,7 @@ impl AcmeManager {
         acme_root_pem: Option<String>,
         cert_dir: PathBuf,
         email: Option<String>,
+        dns_challenge: Option<DnsChallenge>,
     ) -> Self {
         Self {
             store,
@@ -118,6 +124,7 @@ impl AcmeManager {
             acme_root_pem,
             cert_dir,
             email,
+            dns_challenge,
             issuance_lock: tokio::sync::Mutex::new(()),
         }
     }
@@ -174,9 +181,11 @@ impl AcmeManager {
         });
     }
 
-    /// Issue a certificate for a single hostname via HTTP-01 and publish it.
+    /// Issue a certificate for a single hostname and publish it.
     ///
-    /// With `force` (renewal) the existing certificate, if any, is replaced.
+    /// Domain control is proven via HTTP-01 by default, or via DNS-01 when
+    /// `dns_challenge` is configured. With `force` (renewal) the existing
+    /// certificate, if any, is replaced.
     pub async fn issue_for(&self, host: &str, force: bool) -> Result<(), String> {
         if !force && self.store.has(host) {
             return Ok(());
@@ -193,8 +202,22 @@ impl AcmeManager {
             .await
             .map_err(|e| format!("new_order for {host}: {e}"))?;
 
-        // Register the HTTP-01 response for every authorization, then notify
-        // the server the challenge is ready.
+        // For each authorization, present the challenge then notify the server
+        // it is ready. HTTP-01 answers from the ChallengeStore; DNS-01 publishes
+        // a TXT record through the provider (removed on drop via the guard).
+        let challenge_type = match &self.dns_challenge {
+            Some(_) => ChallengeType::Dns01,
+            None => ChallengeType::Http01,
+        };
+        let challenge_label = match &challenge_type {
+            ChallengeType::Dns01 => "DNS-01",
+            ChallengeType::Http01 => "HTTP-01",
+            _ => "challenge",
+        };
+        let mut dns_guard = self
+            .dns_challenge
+            .as_ref()
+            .map(|dns| Dns01Guard::new(Cloudflare::new(&dns.api_token)));
         let mut authorizations = order.authorizations();
         while let Some(result) = authorizations.next().await {
             let mut authz = result.map_err(|e| format!("authorization for {host}: {e}"))?;
@@ -202,11 +225,22 @@ impl AcmeManager {
                 continue;
             }
             let mut challenge = authz
-                .challenge(ChallengeType::Http01)
-                .ok_or_else(|| format!("no HTTP-01 challenge offered for {host}"))?;
-            let token = challenge.token.clone();
+                .challenge(challenge_type.clone())
+                .ok_or_else(|| format!("no {challenge_label} challenge offered for {host}"))?;
             let key_authorization = challenge.key_authorization().as_str().to_string();
-            self.challenges.register(&token, &key_authorization);
+            match &mut dns_guard {
+                Some(guard) => {
+                    let handle = guard
+                        .provider
+                        .present(host, &key_authorization)
+                        .map_err(|e| format!("dns-01 present for {host}: {e}"))?;
+                    guard.handles.push(handle);
+                }
+                None => {
+                    let token = challenge.token.clone();
+                    self.challenges.register(&token, &key_authorization);
+                }
+            }
             challenge
                 .set_ready()
                 .await
@@ -290,6 +324,33 @@ impl AcmeManager {
             Err(e) => tracing::warn!("failed to persist ACME account credentials: {e}"),
         }
         Ok(account)
+    }
+}
+
+/// Publishes DNS-01 TXT records for an in-flight order and removes them when
+/// the issuance attempt finishes, whether it succeeds or fails. A leaked record
+/// would keep the challenge valid (and the record on the zone) indefinitely.
+struct Dns01Guard {
+    provider: Cloudflare,
+    handles: Vec<RecordHandle>,
+}
+
+impl Dns01Guard {
+    fn new(provider: Cloudflare) -> Self {
+        Self {
+            provider,
+            handles: Vec::new(),
+        }
+    }
+}
+
+impl Drop for Dns01Guard {
+    fn drop(&mut self) {
+        for handle in &self.handles {
+            if let Err(e) = self.provider.cleanup(handle) {
+                tracing::warn!("failed to remove DNS-01 TXT record: {e}");
+            }
+        }
     }
 }
 

@@ -19,6 +19,7 @@ description: 每一条 Raddyfile 指令的语法、参数与可运行示例。
 | [`rate_limit`](#rate_limit) | 拒绝超过速率限制的请求 | 修饰 |
 | [`root`](#root) | 为块设置静态文件根目录 | 辅助 |
 | [`trusted_proxies`](#trusted_proxies) | 推导真实客户端 IP 的可信网络 | 配置 |
+| [`dns_challenge`](#dns_challenge) | 经 DNS 服务商(Cloudflare)做 DNS-01 签发 | 配置 |
 | [`log_level`](#log_level) | 全局日志级别 | 配置 |
 | [`acme_email`](#acme_email) | ACME 注册邮箱 | 配置 |
 | [`snippet` / `import`](#snippet--import) | 可复用片段与包含 | *规划中* |
@@ -253,6 +254,40 @@ trusted_proxies <cidr>...
 
 **参数。** 一个或多个网络 —— `<address>/<prefix>` 或裸地址。IPv4 与 IPv6 均
 支持。站点块的值仅对该站点覆盖全局列表。
+
+## `dns_challenge`
+
+**作用。** 用 **DNS-01** 代替 HTTP-01 签发证书,通过 DNS 服务商发布 TXT
+记录证明域名控制权。适合 80 端口不可达的场景。见[站点 · 端口 ·
+HTTPS](sites/)。
+
+**语法。**
+
+```caddyfile
+dns_challenge cloudflare <api_token>
+```
+
+**参数。** 服务商(`cloudflare`——目前唯一)与服务商的 API 令牌,令牌需要
+**Zone: DNS: Edit** 权限。位于[全局块](sites/#全局块)。
+
+**行为。** 配置后,本实例上所有证书走 DNS-01 签发:raddy 在校验订单期间发布
+`_acme-challenge.<host>` TXT 记录,完成后移除。未配置 `dns_challenge` 时
+沿用 HTTP-01。
+
+> **安全:** API 令牌是机密——注意不要让 Raddyfile 落入版本控制。
+
+**示例。**
+
+```caddyfile
+{
+    acme_email ops@example.com
+    dns_challenge cloudflare <api_token>
+}
+
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
 
 ## `log_level`
 

@@ -57,8 +57,11 @@ raddy 比较规范化后的 `Host` 头 —— 去端口、去末尾点、转小�
 
 443 端口上的具名站点自动获得证书:
 
-1. **签发** —— raddy 向 ACME 目录(默认 Let's Encrypt)注册,并在纯 HTTP
-   监听器上应答 **HTTP-01** 挑战(`/.well-known/acme-challenge/…`)。
+1. **签发** —— raddy 向 ACME 目录(默认 Let's Encrypt)注册,并证明域名
+   控制权——默认在纯 HTTP 监听器上应答 **HTTP-01** 挑战
+   (`/.well-known/acme-challenge/…`);当 80 端口不可达时,也可通过
+   [全局块](#全局块)中的 `dns_challenge` 走 **DNS-01**(见
+   [指令参考](directives/#dns_challenge))。
 2. **SNI** —— 每个 HTTPS 请求按请求的主机名选择证书,因此多站点服务器按
    站点下发正确证书。
 3. **缓存** —— 证书与账户凭据存放在 `raddy_certs/`(可用 `--cert-dir`
@@ -107,5 +110,4 @@ static.example.com {
 
 - 站点名或上游中的 IPv6 字面量地址(`[::1]:8080`)。
 - 多域名共享站点块。
-- DNS-01 挑战(使用 HTTP-01)。
 - 可配置的错误页(400 / 404 响应为固定文案)。

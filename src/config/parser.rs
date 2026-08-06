@@ -791,6 +791,29 @@ impl<'a> Parser<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 global.trusted_proxies = networks;
             }
+            "dns_challenge" => {
+                if words.len() != 3 {
+                    return Err(self.err(
+                        "dns_challenge requires a provider and an API token: dns_challenge cloudflare <api_token>",
+                    ));
+                }
+                let provider = match words[1].as_str() {
+                    "cloudflare" => DnsProvider::Cloudflare,
+                    other => {
+                        return Err(self.err(format!(
+                            "invalid dns_challenge provider '{other}' (expected {})",
+                            DnsProvider::ALL.join(", ")
+                        )));
+                    }
+                };
+                if words[2].is_empty() {
+                    return Err(self.err("dns_challenge requires a non-empty API token"));
+                }
+                global.dns_challenge = Some(DnsChallenge {
+                    provider,
+                    api_token: words[2].clone(),
+                });
+            }
             other => return Err(self.err(format!("unknown global directive '{other}'"))),
         }
         Ok(())
@@ -856,6 +879,27 @@ mod tests {
             }
             _ => panic!("expected named site"),
         }
+    }
+
+    #[test]
+    fn parses_dns_challenge_cloudflare() {
+        let input = "{ dns_challenge cloudflare abc123 }\napi.example.com {\n    reverse_proxy 127.0.0.1:8080\n}\n";
+        let rf = parse("test", input).unwrap();
+        let challenge = rf.global.dns_challenge.expect("dns_challenge parsed");
+        assert_eq!(challenge.provider, DnsProvider::Cloudflare);
+        assert_eq!(challenge.api_token, "abc123");
+    }
+
+    #[test]
+    fn rejects_invalid_dns_challenge() {
+        // Unknown provider.
+        let err = parse("test", "{ dns_challenge route53 tok }\n").unwrap_err();
+        assert!(err.to_string().contains("invalid dns_challenge provider"));
+        // Missing token.
+        let err = parse("test", "{ dns_challenge cloudflare }\n").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("requires a provider and an API token"));
     }
 
     #[test]

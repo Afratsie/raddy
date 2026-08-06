@@ -117,6 +117,7 @@ trusted, so the default must be pinned down:
 | `acme_email` | ACME registration email (required by Let's Encrypt) | Available |
 | `rate_limit` | `rate_limit remote_ip <rate> [burst=<n>]` (**single-instance** rate limit; see Section 5.2) | Available |
 | `trusted_proxies` | trusted network list (see Section 4) | Available |
+| `dns_challenge` | `dns_challenge cloudflare <api_token>` — DNS-01 issuance via a DNS provider (Cloudflare); replaces HTTP-01 when set (see Section 5.3) | Available |
 | `snippet` / `import` | reusable snippets `(name) { ... }` / multi-file includes | Future |
 
 **Single-instance vs cluster rate limiting**: rate limiting is per-instance
@@ -193,6 +194,34 @@ api.example.com {
 }
 ```
 
+### 5.3 `dns_challenge` (DNS-01 via a DNS provider)
+
+By default, raddy proves domain control with **HTTP-01** on its plain-HTTP
+listener. When port 80 is unreachable (a network that blocks it, or a
+DNS-only deployment), set `dns_challenge` to prove control by publishing a DNS
+TXT record instead:
+
+- **Syntax**: `dns_challenge <provider> <api_token>`, in the **global block**.
+- **Provider**: `cloudflare` (the only provider today). The token must have
+  **Zone: DNS: Edit** permission.
+- **Semantics**: when set, every certificate on this instance is issued via
+  **DNS-01** — raddy publishes `_acme-challenge.<host>` TXT records through the
+  provider's API while the order is being validated, then removes them. Without
+  `dns_challenge`, behavior is unchanged (HTTP-01).
+- **Security**: the API token is a secret — keep the Raddyfile out of version
+  control or protect it accordingly.
+
+```caddyfile
+{
+    acme_email ops@example.com
+    dns_challenge cloudflare <api_token>
+}
+
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
 ## 6. Site selection, ports, catch-all, and multiple sites
 
 - **Site selection is scoped per listener**: a request is matched only against
@@ -201,10 +230,11 @@ api.example.com {
   ASCII-lowercased). The candidate set is the named sites on that port plus the
   `:port` catch-all.
 - **Named sites default to port 443**: `api.example.com` (no port) binds 443
-  (TLS). Automatic HTTPS is active: named sites obtain certificates via ACME
-  (HTTP-01), SNI returns the matching certificate, and the 443 listener uses
+  (TLS). Automatic HTTPS is active: named sites obtain certificates via ACME —
+  HTTP-01 by default, or DNS-01 when `dns_challenge` is configured (see
+  Section 5.3). SNI returns the matching certificate, and the 443 listener uses
   SNI dynamic certificates (cached in `raddy_certs/`, reused on restart).
-  Renewal is deferred; the disk cache is reused across restarts.
+  Certificates are renewed automatically within 30 days of expiry.
 - **Explicit named-site ports**: `api.example.com:8081 { ... }` binds a named
   site to a non-standard port (for local multi-port deployment and testing);
   the default is 443 when the port is omitted. IPv6 literal addresses

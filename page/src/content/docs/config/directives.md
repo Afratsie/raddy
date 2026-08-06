@@ -20,6 +20,7 @@ the language, read [Concepts](../) first for the mental model.
 | [`rate_limit`](#rate_limit) | Reject requests beyond a rate | modifier |
 | [`root`](#root) | Set the static file root for a block | helper |
 | [`trusted_proxies`](#trusted_proxies) | Trusted networks for the real client IP | config |
+| [`dns_challenge`](#dns_challenge) | DNS-01 issuance via a DNS provider (Cloudflare) | config |
 | [`log_level`](#log_level) | Global log level | config |
 | [`acme_email`](#acme_email) | ACME registration email | config |
 | [`snippet` / `import`](#snippet--import) | Reusable snippets and includes | *planned* |
@@ -260,6 +261,43 @@ trusted_proxies <cidr>...
 **Arguments.** One or more networks — `<address>/<prefix>` or a bare address.
 IPv4 and IPv6 both work. A site-block value overrides the global list for that
 site only.
+
+## `dns_challenge`
+
+**Purpose.** Issue certificates via **DNS-01** instead of HTTP-01, proving
+domain control by publishing a TXT record through a DNS provider. Useful when
+port 80 is unreachable. See [Sites, ports & HTTPS](sites/).
+
+**Syntax.**
+
+```caddyfile
+dns_challenge cloudflare <api_token>
+```
+
+**Arguments.** The provider (`cloudflare` — the only one today) and the
+provider's API token, which must have **Zone: DNS: Edit** permission. Lives in
+the [global block](sites/#the-global-block).
+
+**Behavior.** When set, every certificate on the instance is issued via DNS-01:
+raddy publishes `_acme-challenge.<host>` TXT records while the order is being
+validated and removes them afterwards. Without `dns_challenge`, HTTP-01 is used
+as before.
+
+> **Security:** the API token is a secret — keep the Raddyfile out of version
+> control or protect it accordingly.
+
+**Example.**
+
+```caddyfile
+{
+    acme_email ops@example.com
+    dns_challenge cloudflare <api_token>
+}
+
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
 
 ## `log_level`
 

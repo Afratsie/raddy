@@ -34,6 +34,10 @@ thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Blocking HTTP client for the DNS-01 Cloudflare API calls (spec §5.3). The ACME
+# issuance worker runs on its own single-threaded runtime and serializes orders,
+# so blocking a call there is acceptable. `json` enables send_json/into_json.
+ureq = { version = "2", features = ["json"] }
 zstd = "0.13"
 
 [dev-dependencies]

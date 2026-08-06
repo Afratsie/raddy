@@ -19,6 +19,7 @@
 
 pub mod acme;
 pub mod cli;
+pub mod cloudflare;
 pub mod reload;
 pub mod startup;
 pub mod upgrade;

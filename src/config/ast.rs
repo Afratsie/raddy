@@ -245,6 +245,30 @@ pub struct GlobalConfig {
     /// Networks whose `X-Forwarded-For` is trusted for the real client IP
     /// (spec §4); empty = trust nobody, use the TCP peer.
     pub trusted_proxies: Vec<Cidr>,
+    /// DNS-01 challenge credentials (spec §5.3); when set, certificate
+    /// issuance uses DNS-01 instead of HTTP-01.
+    pub dns_challenge: Option<DnsChallenge>,
+}
+
+/// DNS-01 challenge configuration (spec §5.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsChallenge {
+    /// The DNS provider used to publish the challenge TXT record.
+    pub provider: DnsProvider,
+    /// The provider's API token (a secret; e.g. a Cloudflare token with
+    /// `Zone: DNS: Edit` permission).
+    pub api_token: String,
+}
+
+/// Supported DNS-01 providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsProvider {
+    Cloudflare,
+}
+
+impl DnsProvider {
+    /// The accepted keyword spellings, for error messages.
+    pub const ALL: [&'static str; 1] = ["cloudflare"];
 }
 
 /// Global log level.

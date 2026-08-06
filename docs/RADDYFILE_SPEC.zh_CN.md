@@ -84,6 +84,7 @@ api.example.com {
 | `acme_email` | ACME 注册邮箱（Let's Encrypt 要求） | 可用 |
 | `rate_limit` | `rate_limit remote_ip <rate> [burst=<n>]`（**单机**限流；见 第 5.2 节） | 可用 |
 | `trusted_proxies` | 受信网段列表（见 第 4 节） | 可用 |
+| `dns_challenge` | `dns_challenge cloudflare <api_token>` —— 经 DNS 服务商（Cloudflare）做 DNS-01 签发；配置后替代 HTTP-01（见 第 5.3 节） | 可用 |
 | `snippet` / `import` | 复用片段 `(name) { ... }` / 多文件拆分 | 远期 |
 
 **单机 vs 集群限流**：限流为**单机**（每实例独立计数）；集群级（跨实例共享计数）需外挂 Redis，属后续可选特性，不在本文档文法上预留参数。
@@ -131,10 +132,35 @@ api.example.com {
 }
 ```
 
+### 5.3 `dns_challenge`（经 DNS 服务商的 DNS-01）
+
+默认情况下，raddy 在纯 HTTP 监听器上用 **HTTP-01** 证明域名控制权。当 80
+端口不可达（网络屏蔽，或纯 DNS 部署）时，改用 `dns_challenge` 通过发布 DNS
+TXT 记录证明控制权：
+
+- **语法**：`dns_challenge <provider> <api_token>`，位于**全局块**。
+- **服务商**：`cloudflare`（目前唯一支持）。令牌需要 **Zone: DNS: Edit**
+  权限。
+- **语义**：配置后，本实例上所有证书签发走 **DNS-01**——raddy 在校验订单
+  期间通过服务商 API 发布 `_acme-challenge.<host>` TXT 记录，完成后移除。未
+  配置 `dns_challenge` 时行为不变（HTTP-01）。
+- **安全**：API 令牌是机密——注意不要让 Raddyfile 落入版本控制。
+
+```caddyfile
+{
+    acme_email ops@example.com
+    dns_challenge cloudflare <api_token>
+}
+
+api.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
 ## 6. 站点选择、端口、catch-all 与多站点
 
 - **站点选择按监听器收敛**：请求到达某监听器后，仅在该监听器的候选站点集合内匹配——TLS 监听器按 SNI、纯 HTTP 监听器按规范化 Host（去端口、去尾点、ASCII 小写）。候选集合 = 地址落在该端口的具名站点 + 该端口的 `:port` 兜底块。
-- **具名站点默认端口 443**：`api.example.com`（不带端口）默认绑 443（TLS）。自动 HTTPS 生效：具名站点通过 ACME（HTTP-01）自动签发证书，SNI 按域名返回对应证书；端口 443 监听器使用 SNI 动态证书（`raddy_certs/` 目录缓存，重启复用）。证书续期暂缓；磁盘缓存跨重启复用。
+- **具名站点默认端口 443**：`api.example.com`（不带端口）默认绑 443（TLS）。自动 HTTPS 生效：具名站点通过 ACME 签发证书——默认 HTTP-01，配置 `dns_challenge` 后走 DNS-01（见 第 5.3 节）。SNI 按域名返回对应证书；端口 443 监听器使用 SNI 动态证书（`raddy_certs/` 目录缓存，重启复用）。证书在到期前 30 天内自动续期。
 - **具名站点显式端口**：`api.example.com:8081 { ... }` 将具名站点绑定到非标端口（用于本地多端口部署与测试）；省略端口时默认 443。IPv6 字面量地址（`[::1]:8080`）暂不支持，待真实用例补充。
 - **选不中兜底**：Host 缺失或畸形 → `400 Bad Request`；Host 合法但不匹配任何站点、且无兜底块 → `404 Not Found`。不提供可配置错误页。
 - **非标端口**：`:8443`。
