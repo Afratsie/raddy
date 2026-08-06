@@ -72,8 +72,6 @@ api.example.com {
 ```
 
 - **Detection rule**: a leading `{` token (not a domain) is the global block.
-- `admin 127.0.0.1:2019 { ... }` is placeholder syntax for a future admin API;
-  only the grammar slot is reserved here.
 
 ## 4. Trusted proxies and the real client IP
 
